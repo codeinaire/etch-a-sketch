@@ -1,6 +1,9 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect } from 'react'
 import { Stage, Layer, Line, Text } from 'react-konva'
+import * as Y from 'yjs'
+import { WebrtcProvider } from 'y-webrtc'
+import { useY } from 'react-yjs'
 
 enum Tool {
   'pen' = 'pen',
@@ -11,62 +14,51 @@ interface Line {
   points: number[]
 }
 
-export default function Home() {
-  const [lines, setLines] = useState<Line[]>([
-    {
-      tool: Tool.pen,
-      points: [804, 346],
-    },
-  ])
-  const [xPos, setXPos] = useState<number>(804)
-  const [yPos, setYPos] = useState<number>(346)
-  const stageRef = useRef(null)
-  const xPosRef = useRef(xPos)
-  const yPosRef = useRef(yPos)
+const ydoc = new Y.Doc()
+const yLineDoc = ydoc.getArray<number>('line')
+yLineDoc.push([804, 346])
 
-  useEffect(() => {
-    xPosRef.current = xPos
-    yPosRef.current = yPos
-  }, [xPos, yPos])
+export default function Home() {
+  const yLine = useY(yLineDoc)
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'a') {
-        setLines((prevLines) => {
-          const lastLine = prevLines[prevLines.length - 1]
-          const newXPos = xPosRef.current - 1
-          lastLine.points = lastLine.points.concat([newXPos, yPosRef.current])
-          return [...prevLines.slice(0, -1), lastLine]
-        })
+        // Move line left = x - 1
+        const arrayLength = yLineDoc.length
+        const lastXPos = yLineDoc.get(arrayLength - 2)
+        const lastYPos = yLineDoc.get(arrayLength - 1)
 
-        setXPos((oldXPos) => oldXPos - 1)
+        const newXPos = lastXPos - 1
+        yLineDoc.push([newXPos])
+        yLineDoc.push([lastYPos])
       } else if (e.key === 'o') {
-        setLines((prevLines) => {
-          const lastLine = prevLines[prevLines.length - 1]
-          const newXPos = xPosRef.current + 1
-          lastLine.points = lastLine.points.concat([newXPos, yPosRef.current])
-          return [...prevLines.slice(0, -1), lastLine]
-        })
+        // Move line right = x + 1
+        const arrayLength = yLineDoc.length
+        const lastXPos = yLineDoc.get(arrayLength - 2)
+        const lastYPos = yLineDoc.get(arrayLength - 1)
 
-        setXPos((oldXPos) => oldXPos + 1)
+        const newXPos = lastXPos + 1
+        yLineDoc.push([newXPos])
+        yLineDoc.push([lastYPos])
       } else if (e.key === 'n') {
-        setLines((prevLines) => {
-          const lastLine = prevLines[prevLines.length - 1]
-          const newYPos = yPosRef.current - 1
-          lastLine.points = lastLine.points.concat([xPosRef.current, newYPos])
-          return [...prevLines.slice(0, -1), lastLine]
-        })
+        // Move line down = y - 1
+        const arrayLength = yLineDoc.length
+        const lastXPos = yLineDoc.get(arrayLength - 2)
+        const lastYPos = yLineDoc.get(arrayLength - 1)
 
-        setYPos((oldYPos) => oldYPos - 1)
+        const newYPos = lastYPos - 1
+        yLineDoc.push([lastXPos])
+        yLineDoc.push([newYPos])
       } else if (e.key === 's') {
-        setLines((prevLines) => {
-          const lastLine = prevLines[prevLines.length - 1]
-          const newYPos = yPosRef.current + 1
-          lastLine.points = lastLine.points.concat([xPosRef.current, newYPos])
-          return [...prevLines.slice(0, -1), lastLine]
-        })
+        // Move line up = y + 1
+        const arrayLength = yLineDoc.length
+        const lastXPos = yLineDoc.get(arrayLength - 2)
+        const lastYPos = yLineDoc.get(arrayLength - 1)
 
-        setYPos((oldYPos) => oldYPos + 1)
+        const newYPos = lastYPos + 1
+        yLineDoc.push([lastXPos])
+        yLineDoc.push([newYPos])
       }
     }
 
@@ -75,25 +67,22 @@ export default function Home() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [])
+  })
 
   return (
     <div>
-      <Stage ref={stageRef} width={window.innerWidth} height={window.innerHeight}>
+      <Stage width={window.innerWidth} height={window.innerHeight}>
         <Layer>
           <Text text="Just start drawing" x={5} y={30} />
-          {lines.map((line: Line, i: number) => (
-            <Line
-              key={i}
-              points={line.points}
-              stroke="#df4b26"
-              strokeWidth={5}
-              tension={0.5}
-              lineCap="round"
-              lineJoin="round"
-              globalCompositeOperation="source-over"
-            />
-          ))}
+          <Line
+            points={yLine}
+            stroke="#df4b26"
+            strokeWidth={5}
+            tension={0.5}
+            lineCap="round"
+            lineJoin="round"
+            globalCompositeOperation="source-over"
+          />
         </Layer>
       </Stage>
     </div>
