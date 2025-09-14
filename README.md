@@ -1,3 +1,13 @@
+# Collaborative Etch-a-sketch
+
+I wanted to learn the basics of RTC and do something fun at the same time. I wondered how I could make a collaborative etch-a-sketch and decided to give it a go.
+
+# TODO
+
+- ~~Build etch-a-sketch functionality with JS package~~
+- ~~Update etch-a-sketch functionality with YJS~~
+- Implement RTC functionality
+
 This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
 
 ## Getting Started
@@ -34,4 +44,3 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
-# etch-a-sketch
