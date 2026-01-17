@@ -11,15 +11,52 @@ const port = parseInt(process.env.PORT || '1234', 10)
 
 const messageSync = 0
 const messageAwareness = 1
+const messageClientInit = 2
+
+// Color palette for clients
+const COLORS = [
+  '#df4b26', // red-orange
+  '#26df4b', // green
+  '#264bdf', // blue
+  '#df26df', // magenta
+  '#dfdf26', // yellow
+  '#26dfdf', // cyan
+  '#df8c26', // orange
+  '#8c26df', // purple
+  '#26df8c', // mint
+  '#df2666', // pink
+]
 
 // Store documents and their connections by room
 interface Room {
   doc: Y.Doc
   awareness: awarenessProtocol.Awareness
   connections: Set<WebSocket>
+  usedColors: Set<number>
 }
 
 const rooms = new Map<string, Room>()
+
+// Generate random starting position
+function getRandomStartPosition(width: number = 800, height: number = 600): { x: number, y: number } {
+  return {
+    x: Math.floor(Math.random() * (width - 200) + 100),
+    y: Math.floor(Math.random() * (height - 200) + 100)
+  }
+}
+
+// Get next available color
+function getNextColor(usedColors: Set<number>): { color: string, index: number } {
+  // Try to find unused color
+  for (let i = 0; i < COLORS.length; i++) {
+    if (!usedColors.has(i)) {
+      return { color: COLORS[i], index: i }
+    }
+  }
+  // If all colors used, wrap around
+  const index = Math.floor(Math.random() * COLORS.length)
+  return { color: COLORS[index], index }
+}
 
 function getRoom(roomName: string): Room {
   let room = rooms.get(roomName)
@@ -29,7 +66,8 @@ function getRoom(roomName: string): Room {
     room = {
       doc,
       awareness,
-      connections: new Set()
+      connections: new Set(),
+      usedColors: new Set()
     }
     rooms.set(roomName, room)
     console.log(`Created new room: ${roomName}`)
@@ -56,11 +94,40 @@ wss.on('connection', (ws: WebSocket, req) => {
   const room = getRoom(roomName)
   room.connections.add(ws)
 
+  // Generate unique client ID
+  const clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  
+  // Assign color and starting position
+  const { color, index: colorIndex } = getNextColor(room.usedColors)
+  room.usedColors.add(colorIndex)
+  const startPosition = getRandomStartPosition()
+  
+  // Store client info on the websocket for cleanup
+  ;(ws as any).clientId = clientId
+  ;(ws as any).colorIndex = colorIndex
+  
+  console.log(`Client ${clientId} assigned color ${color} at position (${startPosition.x}, ${startPosition.y})`)
+
+  // Store client metadata in the Y.Doc so all clients can see it
+  const clientMetaMap = room.doc.getMap('clientMeta')
+  clientMetaMap.set(clientId, {
+    clientId,
+    color,
+    startPosition,
+    lastUpdated: Date.now()
+  })
+
   // Send sync step 1
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageSync)
   syncProtocol.writeSyncStep1(encoder, room.doc)
   ws.send(encoding.toUint8Array(encoder))
+  
+  // Send client initialization message with clientId
+  const initEncoder = encoding.createEncoder()
+  encoding.writeVarUint(initEncoder, messageClientInit)
+  encoding.writeVarString(initEncoder, JSON.stringify({ clientId, color, startPosition }))
+  ws.send(encoding.toUint8Array(initEncoder))
 
   // Handle incoming messages
   ws.on('message', (message: Buffer) => {
@@ -117,6 +184,20 @@ wss.on('connection', (ws: WebSocket, req) => {
   room.doc.on('update', updateHandler)
 
   ws.on('close', () => {
+    // Release the color
+    const colorIndex = (ws as any).colorIndex
+    if (colorIndex !== undefined) {
+      room.usedColors.delete(colorIndex)
+    }
+    
+    // Remove client metadata
+    const storedClientId = (ws as any).clientId
+    if (storedClientId) {
+      const clientMetaMap = room.doc.getMap('clientMeta')
+      clientMetaMap.delete(storedClientId)
+      console.log(`Removed metadata for client ${storedClientId}`)
+    }
+    
     room.connections.delete(ws)
     room.doc.off('update', updateHandler)
     console.log(`Connection closed for room: ${roomName} (${room.connections.size} remaining)`)
