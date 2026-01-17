@@ -8,6 +8,12 @@ import { useY } from 'react-yjs'
 const SPEED_OF_ETCH = 2
 const BORDER_SIZE = 50
 
+interface ClientLine {
+  points: number[]
+  color: string
+  clientId: string
+}
+
 export default function EtchASketchCanvas() {
   const [screenDimension, setScreenDimension] = useState(() => {
     const width = window.innerWidth - BORDER_SIZE
@@ -17,29 +23,155 @@ export default function EtchASketchCanvas() {
   const isScreenTooSmall = screenDimension.width <= BORDER_SIZE || screenDimension.height <= BORDER_SIZE
 
   const [isConnected, setIsConnected] = useState(false)
+  const [myClientId, setMyClientId] = useState<string | null>(null)
+  const [myColor, setMyColor] = useState<string>('#df4b26')
 
-  const { doc: _, provider, yLineDoc } = useMemo(() => {
+  const { doc, provider, yLinesMap, yClientMetaMap } = useMemo(() => {
     const doc = new Y.Doc()
-    const yLineDoc = doc.getArray<number>('line')
+    const yLinesMap = doc.getMap<Y.Array<number>>('lines')
+    const yClientMetaMap = doc.getMap('clientMeta')
     const provider = new WebsocketProvider(
       'ws://localhost:1234/etch-a-sketch-room',
       'etch-a-sketch-room',
       doc
     )
-    return { doc, provider, yLineDoc }
+    return { doc, provider, yLinesMap, yClientMetaMap }
   }, [])
 
-  const points = useY(yLineDoc)
-
-  const yLineDocRef = useRef(yLineDoc)
+  const yLinesMapRef = useRef(yLinesMap)
+  const myClientIdRef = useRef<string | null>(null)
   
   useEffect(() => {
-    if (yLineDoc.length === 0) {
-      yLineDoc.insert(0, [400, 300])
-    }
+    myClientIdRef.current = myClientId
+  }, [myClientId])
 
+  // Listen for custom client initialization message from server
+  useEffect(() => {
+    const messageHandler = (event: MessageEvent) => {
+      if (event.data instanceof ArrayBuffer) {
+        const uint8Array = new Uint8Array(event.data)
+        const decoder = { arr: uint8Array, pos: 0 }
+        
+        // Read message type
+        let messageType = 0
+        let shift = 0
+        let byte = 0
+        do {
+          byte = decoder.arr[decoder.pos++]
+          messageType |= (byte & 0x7f) << shift
+          shift += 7
+        } while (byte & 0x80)
+        
+        // If it's our custom message type (2)
+        if (messageType === 2 && !myClientId) {
+          // Read the JSON string
+          let strLen = 0
+          shift = 0
+          do {
+            byte = decoder.arr[decoder.pos++]
+            strLen |= (byte & 0x7f) << shift
+            shift += 7
+          } while (byte & 0x80)
+          
+          const strBytes = decoder.arr.slice(decoder.pos, decoder.pos + strLen)
+          const jsonStr = new TextDecoder().decode(strBytes)
+          const data = JSON.parse(jsonStr)
+          
+          console.log('Received client init:', data)
+          
+          setMyClientId(data.clientId)
+          setMyColor(data.color)
+          
+          // Create Y.Array for this client if it doesn't exist
+          if (!yLinesMap.has(data.clientId)) {
+            const lineArray = new Y.Array<number>()
+            lineArray.insert(0, [data.startPosition.x, data.startPosition.y])
+            yLinesMap.set(data.clientId, lineArray)
+            console.log(`Initialized line at (${data.startPosition.x}, ${data.startPosition.y}) with color ${data.color}`)
+          }
+        }
+      }
+    }
+    
+    // Access the underlying WebSocket
+    const ws = (provider as any).ws
+    if (ws) {
+      ws.addEventListener('message', messageHandler)
+      return () => {
+        ws.removeEventListener('message', messageHandler)
+      }
+    }
+  }, [provider, myClientId, yLinesMap])
+  
+  // Use react-yjs to track changes
+  const linesMapData = useY(yLinesMap)
+  const clientMetaData = useY(yClientMetaMap)
+  
+  // Force re-render when Y.Arrays inside the map change
+  const [updateTrigger, forceUpdate] = useState(0)
+  
+  useEffect(() => {
+    const observers = new Map<string, () => void>()
+    
+    const setupObservers = () => {
+      // Clean up old observers
+      observers.forEach((handler, clientId) => {
+        const lineArray = yLinesMap.get(clientId)
+        if (lineArray) {
+          lineArray.unobserve(handler)
+        }
+      })
+      observers.clear()
+      
+      // Set up new observers for each Y.Array
+      yLinesMap.forEach((lineArray: Y.Array<number>, clientId: string) => {
+        const handler = () => {
+          forceUpdate(v => v + 1)
+        }
+        lineArray.observe(handler)
+        observers.set(clientId, handler)
+      })
+    }
+    
+    // Set up observers initially and when map structure changes
+    setupObservers()
+    
+    return () => {
+      // Clean up all observers
+      observers.forEach((handler, clientId) => {
+        const lineArray = yLinesMap.get(clientId)
+        if (lineArray) {
+          lineArray.unobserve(handler)
+        }
+      })
+    }
+  }, [linesMapData, yLinesMap])
+  
+  // Compute client lines from reactive Y.Map data and client metadata
+  const clientLines = useMemo(() => {
+    const lines = new Map<string, ClientLine>()
+    
+    // Build color map from client metadata
+    const colorMap = new Map<string, string>()
+    yClientMetaMap.forEach((meta: any, clientId: string) => {
+      if (meta && meta.color) {
+        colorMap.set(clientId, meta.color)
+      }
+    })
+    
+    // Build lines from Y.Map data - iterate over the actual map
+    yLinesMap.forEach((lineArray: Y.Array<number>, clientId: string) => {
+      const points = lineArray.toArray()
+      const color = colorMap.get(clientId) || '#df4b26'
+      lines.set(clientId, { points, color, clientId })
+    })
+    
+    return lines
+  }, [linesMapData, clientMetaData, yLinesMap, yClientMetaMap, updateTrigger])
+
+  useEffect(() => {
     const onStatus = (event: { status: string }) => {
-      setIsConnected(event.status === 'isConnected')
+      setIsConnected(event.status === 'connected')
     }
     
     const onSync = (isSynced: boolean) => {
@@ -53,7 +185,7 @@ export default function EtchASketchCanvas() {
       provider.off('status', onStatus)
       provider.off('sync', onSync)
     }
-  }, [yLineDoc, provider])
+  }, [provider])
 
   useEffect(() => {
     const handleResize = () => {
@@ -69,14 +201,24 @@ export default function EtchASketchCanvas() {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      const yLineDoc = yLineDocRef.current
+      const yLinesMap = yLinesMapRef.current
+      const currentClientId = myClientIdRef.current
+      
+      if (!currentClientId) {
+        return // Not initialized yet
+      }
       
       // Prevent default behavior for movement keys
       if (['a', 'o', 'n', 's', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
         e.preventDefault()
       }
 
-      const arrayLength = yLineDoc.length
+      const myLine = yLinesMap.get(currentClientId)
+      if (!myLine) {
+        return
+      }
+
+      const arrayLength = myLine.length
       
       // Need at least 2 elements (x, y) to have a position
       if (arrayLength < 2) {
@@ -84,8 +226,8 @@ export default function EtchASketchCanvas() {
       }
 
       // Get the last position (last two elements are x and y)
-      const lastXPos = yLineDoc.get(arrayLength - 2)
-      const lastYPos = yLineDoc.get(arrayLength - 1)
+      const lastXPos = myLine.get(arrayLength - 2)
+      const lastYPos = myLine.get(arrayLength - 1)
 
       let newXPos = lastXPos
       let newYPos = lastYPos
@@ -109,7 +251,7 @@ export default function EtchASketchCanvas() {
       // Only add new point if position actually changed
       if (newXPos !== lastXPos || newYPos !== lastYPos) {
         // Insert new coordinates at the end of the array
-        yLineDoc.insert(yLineDoc.length, [newXPos, newYPos])
+        myLine.insert(myLine.length, [newXPos, newYPos])
       }
     }
 
@@ -145,24 +287,33 @@ export default function EtchASketchCanvas() {
     )
   }
 
+  const totalPoints = Array.from(clientLines.values()).reduce((sum, line) => sum + line.points.length / 2, 0)
+
   return (
     <div>
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1000, background: 'rgba(0,0,0,0.7)', color: 'white', padding: '10px', borderRadius: '5px' }}>
         <div>Status: {isConnected ? '🟢 Connected' : '🔴 Disconnected'}</div>
-        <div>Points: {points.length / 2}</div>
+        <div>Active Clients: {clientLines.size}</div>
+        <div>Total Points: {totalPoints}</div>
+        <div style={{ marginTop: '5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+          Your Color: <div style={{ width: '20px', height: '20px', background: myColor, border: '1px solid white' }} />
+        </div>
       </div>
       <Stage width={screenDimension.width} height={screenDimension.height}>
         <Layer>
           <Text text="Use arrow keys or a/o/n/s to draw" x={5} y={30} />
-          <Line
-            points={points}
-            stroke="#df4b26"
-            strokeWidth={5}
-            tension={0.5}
-            lineCap="round"
-            lineJoin="round"
-            globalCompositeOperation="source-over"
-          />
+          {Array.from(clientLines.values()).map((clientLine) => (
+            <Line
+              key={clientLine.clientId}
+              points={clientLine.points}
+              stroke={clientLine.color}
+              strokeWidth={5}
+              tension={0.5}
+              lineCap="round"
+              lineJoin="round"
+              globalCompositeOperation="source-over"
+            />
+          ))}
         </Layer>
       </Stage>
     </div>
