@@ -113,7 +113,8 @@ wss.on('connection', (ws: WebSocket, req) => {
   clientMetaMap.set(clientId, {
     clientId,
     color,
-    startPosition
+    startPosition,
+    lastUpdated: Date.now()
   })
 
   // Send sync step 1

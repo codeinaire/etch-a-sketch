@@ -12,6 +12,7 @@ interface ClientLine {
   points: number[]
   color: string
   clientId: string
+  lastUpdated: number
 }
 
 export default function EtchASketchCanvas() {
@@ -39,6 +40,7 @@ export default function EtchASketchCanvas() {
   }, [])
 
   const yLinesMapRef = useRef(yLinesMap)
+  const yClientMetaMapRef = useRef(yClientMetaMap)
   const myClientIdRef = useRef<string | null>(null)
   
   useEffect(() => {
@@ -151,23 +153,23 @@ export default function EtchASketchCanvas() {
   const clientLines = useMemo(() => {
     const lines = new Map<string, ClientLine>()
     
-    // Build color map from client metadata
-    const colorMap = new Map<string, string>()
-    yClientMetaMap.forEach((meta: any, clientId: string) => {
-      if (meta && meta.color) {
-        colorMap.set(clientId, meta.color)
-      }
-    })
-    
-    // Build lines from Y.Map data - iterate over the actual map
+    // Build lines with metadata
     yLinesMap.forEach((lineArray: Y.Array<number>, clientId: string) => {
       const points = lineArray.toArray()
-      const color = colorMap.get(clientId) || '#df4b26'
-      lines.set(clientId, { points, color, clientId })
+      const meta = yClientMetaMap.get(clientId) as any
+      const color = meta?.color || '#df4b26'
+      const lastUpdated = meta?.lastUpdated || 0
+      
+      lines.set(clientId, { points, color, clientId, lastUpdated })
     })
     
     return lines
   }, [linesMapData, clientMetaData, yLinesMap, yClientMetaMap, updateTrigger])
+  
+  // Sort lines by lastUpdated timestamp for consistent z-ordering across all clients
+  const sortedClientLines = useMemo(() => {
+    return Array.from(clientLines.values()).sort((a, b) => a.lastUpdated - b.lastUpdated)
+  }, [clientLines])
 
   useEffect(() => {
     const onStatus = (event: { status: string }) => {
@@ -202,6 +204,7 @@ export default function EtchASketchCanvas() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const yLinesMap = yLinesMapRef.current
+      const yClientMetaMap = yClientMetaMapRef.current
       const currentClientId = myClientIdRef.current
       
       if (!currentClientId) {
@@ -252,6 +255,15 @@ export default function EtchASketchCanvas() {
       if (newXPos !== lastXPos || newYPos !== lastYPos) {
         // Insert new coordinates at the end of the array
         myLine.insert(myLine.length, [newXPos, newYPos])
+        
+        // Update the lastUpdated timestamp for this client
+        const currentMeta = yClientMetaMap.get(currentClientId)
+        if (currentMeta) {
+          yClientMetaMap.set(currentClientId, {
+            ...currentMeta,
+            lastUpdated: Date.now()
+          })
+        }
       }
     }
 
@@ -287,7 +299,7 @@ export default function EtchASketchCanvas() {
     )
   }
 
-  const totalPoints = Array.from(clientLines.values()).reduce((sum, line) => sum + line.points.length / 2, 0)
+  const totalPoints = sortedClientLines.reduce((sum, line) => sum + line.points.length / 2, 0)
 
   return (
     <div>
@@ -302,7 +314,7 @@ export default function EtchASketchCanvas() {
       <Stage width={screenDimension.width} height={screenDimension.height}>
         <Layer>
           <Text text="Use arrow keys or a/o/n/s to draw" x={5} y={30} />
-          {Array.from(clientLines.values()).map((clientLine) => (
+          {sortedClientLines.map((clientLine) => (
             <Line
               key={clientLine.clientId}
               points={clientLine.points}
