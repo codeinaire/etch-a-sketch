@@ -1,34 +1,60 @@
-# Collaborative Etch-a-sketch
+# Collaborative Etch-A-Sketch 🎨
 
-I wanted to learn the basics of RTC and do something fun at the same time. I wondered how I could make a collaborative etch-a-sketch and decided to give it a go.
+A real-time collaborative drawing app inspired by the classic Etch-A-Sketch toy! Draw together with others using keyboard controls, powered by YJS and WebSockets.
 
-# TODO
+## Features
 
-- ~~Build etch-a-sketch functionality with JS package~~
-- ~~Update etch-a-sketch functionality with YJS~~
-- Implement RTC functionality
+- ✨ Real-time collaborative drawing
+- 🎮 Keyboard controls (arrow keys or AONS keys)
+- 🔄 Automatic synchronization across all connected clients
+- 🎯 Built with Next.js, React Konva, and YJS
 
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+## Tech Stack
+
+- **Frontend**: Next.js 16, React 19, TypeScript
+- **Canvas**: React Konva
+- **Real-time Sync**: YJS with WebSocket provider
+- **Backend**: Node.js WebSocket server (TypeScript)
 
 ## Getting Started
 
-First, run the development server:
+### Option 1: Run both servers together (recommended)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev:all
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This starts both the Next.js dev server (port 3000) and the WebSocket server (port 1234).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Option 2: Run servers separately
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+**Terminal 1 - WebSocket Server:**
+```bash
+npm run server
+```
+
+**Terminal 2 - Next.js Dev Server:**
+```bash
+npm run dev
+```
+
+## How to Use
+
+1. Open [http://localhost:3000](http://localhost:3000) in multiple browser tabs/windows
+2. Use keyboard controls to draw:
+   - **Arrow Keys** or **A** (left), **O** (right), **S** (up), **N** (down)
+3. Watch as your drawings sync in real-time across all connected clients!
+
+## Project Structure
+
+```
+├── src/app/          # Next.js app directory
+│   └── page.tsx      # Main Etch-A-Sketch component
+├── backend/          # WebSocket server
+│   └── server.ts     # YJS WebSocket server (TypeScript)
+└── package.json      # Dependencies and scripts
+```
 
 ## Learn More
 
